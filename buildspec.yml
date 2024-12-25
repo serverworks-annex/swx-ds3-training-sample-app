@@ -1,0 +1,32 @@
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      # CodeBuildが稼働している環境のAWSアカウントIDを取得
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - REPOSITORY_ENDPOINT=$ACCOUNT_ID.dkr.ecr.ap-northeast-1.amazonaws.com
+      - REPOSITORY_NAME=ecr-xxx # xxxの部分は自身の名前に変更
+      - REPOSITORY_URI=$REPOSITORY_ENDPOINT/$REPOSITORY_NAME
+      # ECRにログイン
+      - aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin $REPOSITORY_ENDPOINT
+      # CODEBUILD_RESOLVED_SOURCE_VERSIONは、ビルドのソースコードのバージョンの識別子
+      # https://docs.aws.amazon.com/ja_jp/codebuild/latest/userguide/build-env-ref-env-vars.html
+      # CODEBUILD_RESOLVED_SOURCE_VERSIONから、最初の7文字を取得して、IMAGE_TAGとして使用する
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+
+  build:
+    commands:         
+      - docker build -t $REPOSITORY_URI:latest .
+      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+
+  post_build:
+    commands:
+      - docker push $REPOSITORY_URI:latest
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      # イメージのURIをファイルに書き出す
+      - printf '{"Version":"1.0","ImageURI":"%s"}' $REPOSITORY_URI:$IMAGE_TAG > imageDetail.json
+
+artifacts:
+    # イメージのURIを書き出したファイルをアーティファクトとする
+    # ファイルに書き出したイメージのURIは、デプロイアクションでタスク定義の更新に使用する
+    files: imageDetail.json
