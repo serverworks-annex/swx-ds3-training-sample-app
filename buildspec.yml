@@ -29,4 +29,6 @@ phases:
 artifacts:
     # イメージのURIを書き出したファイルをアーティファクトとする
     # ファイルに書き出したイメージのURIは、デプロイアクションでタスク定義の更新に使用する
-    files: imageDetail.json
+    files: 
+      - imageDetail.json
+      - appspec.yml
