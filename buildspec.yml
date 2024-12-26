@@ -24,11 +24,12 @@ phases:
       - docker push $REPOSITORY_URI:latest
       - docker push $REPOSITORY_URI:$IMAGE_TAG
       # イメージのURIをファイルに書き出す
-      - printf '{"Version":"1.0","ImageURI":"%s"}' $REPOSITORY_URI:$IMAGE_TAG > imageDetail.json
+      - printf '[{"name":"web","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
+      - cat imagedefinitions.json
 
 artifacts:
     # イメージのURIを書き出したファイルをアーティファクトとする
     # ファイルに書き出したイメージのURIは、デプロイアクションでタスク定義の更新に使用する
     files: 
-      - imageDetail.json
+      - imagedefinitions.json
       - appspec.yml
