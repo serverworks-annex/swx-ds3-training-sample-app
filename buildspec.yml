@@ -5,7 +5,7 @@ phases:
       # CodeBuildが稼働している環境のAWSアカウントIDを取得
       - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
       - REPOSITORY_ENDPOINT=$ACCOUNT_ID.dkr.ecr.ap-northeast-1.amazonaws.com
-      - REPOSITORY_NAME=20241226-ecr-endo # xxxの部分は自身の名前に変更
+      - REPOSITORY_NAME=20241226-ecr-ogi # xxxの部分は自身の名前に変更
       - REPOSITORY_URI=$REPOSITORY_ENDPOINT/$REPOSITORY_NAME
       # ECRにログイン
       - aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin $REPOSITORY_ENDPOINT
