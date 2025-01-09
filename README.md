@@ -15,6 +15,12 @@ Dockerがインストールされていない場合は、インストールし�
     └── index.php
 ```
 
+## 事前準備
+
+composerをインストールしていない場合は、インストールしておいてください。
+https://getcomposer.org/download/
+
+
 ## コンテナのビルド方法作成
 
 
@@ -32,4 +38,15 @@ docker container run --rm -p 8080:80 -d php-sample:latest
 
 ```shell
 curl http://localhost:8080
+```
+
+## 静的コード解析
+
+```shell
+vendor/bin/phpstan analyse src tests --level max
+
+## ユニットテスト
+
+```shell
+vendor/bin/phpunit tests
 ```
