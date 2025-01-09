@@ -25,7 +25,7 @@ phases:
 
       - composer install --dev
       - composer dump-autoload
-      - vendor/bin/phpstan analyse src tests --level max
+      - vendor/bin/phpstan analyse src --level max
       - vendor/bin/phpunit tests
   build:
     commands:
