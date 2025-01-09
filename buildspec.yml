@@ -27,6 +27,7 @@ phases:
       - composer dump-autoload
       - vendor/bin/phpstan analyse src --level max
       - vendor/bin/phpunit tests
+      - sh sample_shell.sh
   build:
     commands:
       - docker build -t $REPOSITORY_URI:latest .
