@@ -9,7 +9,7 @@
         echo gethostname(); 
         
         // 下記の一行により静的解析（phpstan）でエラーになります。
-        // echo $undefinedVariable;
+        echo $undefinedVariable;
         ?>
     </body>
 </html>
