@@ -15,6 +15,31 @@ Dockerがインストールされていない場合は、インストールし�
     └── index.php
 ```
 
+## 事前準備
+
+composerをインストールしていない場合は、インストールしておいてください。
+composerのインストール方法は以下のURLを参照してください。
+https://getcomposer.org/download/
+
+composerのインストールが完了したら、以下のコマンドを実行して、必要なライブラリをインストールしてください。
+
+```shell
+composer install --dev
+composer dump-autoload
+```
+
+## 静的コード解析
+
+```shell
+vendor/bin/phpstan analyse src --level max
+```
+
+## ユニットテスト
+
+```shell
+vendor/bin/phpunit tests
+```
+
 ## コンテナのビルド方法作成
 
 
