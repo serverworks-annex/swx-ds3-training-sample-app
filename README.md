@@ -43,7 +43,8 @@ curl http://localhost:8080
 ## 静的コード解析
 
 ```shell
-vendor/bin/phpstan analyse src tests --level max
+vendor/bin/phpstan analyse src --level max
+```
 
 ## ユニットテスト
 
