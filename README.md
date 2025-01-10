@@ -28,6 +28,18 @@ composer install --dev
 composer dump-autoload
 ```
 
+## 静的コード解析
+
+```shell
+vendor/bin/phpstan analyse src --level max
+```
+
+## ユニットテスト
+
+```shell
+vendor/bin/phpunit tests
+```
+
 ## コンテナのビルド方法作成
 
 
@@ -45,16 +57,4 @@ docker container run --rm -p 8080:80 -d php-sample:latest
 
 ```shell
 curl http://localhost:8080
-```
-
-## 静的コード解析
-
-```shell
-vendor/bin/phpstan analyse src --level max
-```
-
-## ユニットテスト
-
-```shell
-vendor/bin/phpunit tests
 ```
