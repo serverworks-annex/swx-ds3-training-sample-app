@@ -18,8 +18,15 @@ Dockerがインストールされていない場合は、インストールし�
 ## 事前準備
 
 composerをインストールしていない場合は、インストールしておいてください。
+composerのインストール方法は以下のURLを参照してください。
 https://getcomposer.org/download/
 
+composerのインストールが完了したら、以下のコマンドを実行して、必要なライブラリをインストールしてください。
+
+```shell
+composer install --dev
+composer dump-autoload
+```
 
 ## コンテナのビルド方法作成
 
