@@ -38,7 +38,7 @@ phases:
       - docker push $REPOSITORY_URI:latest
       - docker push $REPOSITORY_URI:$IMAGE_TAG
       # イメージのURIをファイルに書き出す
-      - printf '[{"name":"web","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imageDetail.json
+      - printf '{"Version":"1.0","ImageURI":"%s"}' $REPOSITORY_URI:$IMAGE_TAG > imageDetail.json
       - cat imageDetail.json
       # tasjdef.jsonのアカウントIDを置換
       - sed -i -e "s/ACCOUNT_ID/$ACCOUNT_ID/g" taskdef.json
