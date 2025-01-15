@@ -1,0 +1,49 @@
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      php: 8.2
+    commands:
+      - php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+      - php -r "if (hash_file('sha384', 'composer-setup.php') === 'dac665fdc30fdd8ec78b38b9800061b4150413ff2e3b6f88543c636f7cd84f6db9189d43a81e5503cda447da73c7e5b6') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;"
+      - php composer-setup.php
+      - php -r "unlink('composer-setup.php');"
+      - sudo mv composer.phar /usr/local/bin/composer
+  pre_build:
+    commands:
+      # CodeBuildが稼働している環境のAWSアカウントIDを取得
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - REPOSITORY_ENDPOINT=$ACCOUNT_ID.dkr.ecr.ap-northeast-1.amazonaws.com
+      - REPOSITORY_NAME=20241226-ecr-endo # xxxの部分は自身の名前に変更
+      - REPOSITORY_URI=$REPOSITORY_ENDPOINT/$REPOSITORY_NAME
+      # ECRにログイン
+      - aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin $REPOSITORY_ENDPOINT
+      # CODEBUILD_RESOLVED_SOURCE_VERSIONは、ビルドのソースコードのバージョンの識別子
+      # https://docs.aws.amazon.com/ja_jp/codebuild/latest/userguide/build-env-ref-env-vars.html
+      # CODEBUILD_RESOLVED_SOURCE_VERSIONから、最初の7文字を取得して、IMAGE_TAGとして使用する
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+
+      - composer install --dev
+      - composer dump-autoload
+      - vendor/bin/phpstan analyse src --level max
+      - vendor/bin/phpunit tests
+      - sh sample_shell.sh
+  build:
+    commands:
+      - docker build -t $REPOSITORY_URI:latest .
+      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+
+  post_build:
+    commands:
+      - docker push $REPOSITORY_URI:latest
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      # イメージのURIをファイルに書き出す
+      - printf '[{"name":"web","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
+      - cat imagedefinitions.json
+
+artifacts:
+    # イメージのURIを書き出したファイルをアーティファクトとする
+    # ファイルに書き出したイメージのURIは、デプロイアクションでタスク定義の更新に使用する
+    files: 
+      - imagedefinitions.json
+      - appspec.yml
