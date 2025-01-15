@@ -2,7 +2,7 @@
     "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
     "containerDefinitions": [
         {
-            "name": "sample-website",
+            "name": "web",
             "image": "<IMAGE1_NAME>",
             "essential": true,
             "portMappings": [
@@ -20,5 +20,5 @@
     "networkMode": "awsvpc",
     "cpu": "256",
     "memory": "512",
-    "family": "ecs-demo"
+    "family": "ecs-web"
 }
