@@ -1,0 +1,277 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Serverworks devops training"
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - Label:
+          default: Common parameters
+        Parameters:
+          - UserName
+          - StageName
+      - Label: 
+          default: "Parameters for VPC"
+        Parameters:
+          - "VpcID"
+          - "PublicSubnets"
+          - "ALBSecurityGroup"
+          - "ECSSecurityGroup"
+        
+Parameters:
+  UserName:
+    Description: User name
+    Type: String
+    Default: xxxx
+
+  StageName:
+    Description: Stage name
+    Type: String
+    AllowedValues:
+      - local
+      - training
+      - dev
+      - stg
+      - prod
+    Default: training
+
+Resources:
+
+  #----------------------------------------
+  # ECR Repository
+  #----------------------------------------
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${UserName}-${StageName}-ecr-repo"
+
+  #----------------------------------------
+  # ECS Cluster
+  #----------------------------------------
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${UserName}-${StageName}-ecs-cluster"
+
+  #----------------------------------------
+  # ECS Task Execution Role
+  #----------------------------------------
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${UserName}-${StageName}-ecs-task-execution-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "ecs-tasks.amazonaws.com"
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+           - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  #----------------------------------------
+  # ECS Task Definition
+  #----------------------------------------
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: "ecs-default"
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: web
+          Image: "public.ecr.aws/docker/library/httpd:latest"
+          PortMappings:
+            - ContainerPort: 80
+          Essential: true
+
+  #----------------------------------------
+  # ECS Service (Blue/Green Deploy対応)
+  #----------------------------------------
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener
+    Properties:
+      Cluster: !Ref ECSCluster
+      ServiceName: !Sub "${UserName}-${StageName}-ecs-service"
+      LaunchType: FARGATE
+      TaskDefinition: !Ref ECSTaskDefinition
+      DesiredCount: 2
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - Fn::ImportValue:
+                Fn::Sub: "${UserName}-${StageName}-sg-ecs"
+          Subnets:
+            - Fn::ImportValue:
+                Fn::Sub: "${UserName}-${StageName}-subnet-private-1"
+            - Fn::ImportValue:
+                Fn::Sub: "${UserName}-${StageName}-subnet-private-2"
+      DeploymentController:
+        Type: CODE_DEPLOY
+      LoadBalancers:
+        - ContainerName: web
+          ContainerPort: 80
+          TargetGroupArn: !Ref ALBTargetGroupBlue
+
+  #----------------------------------------
+  # ALB Target Group
+  # ターゲットグループの設定です
+  # オートスケーリングで起動するEC2をターゲットとして指定します
+  # ターゲットグループは、ロードバランサーからのリクエストを受け取る単位です
+  #----------------------------------------
+  ALBTargetGroupBlue: 
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties: 
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub: "${UserName}-${StageName}-vpc"
+      Name: !Sub "${UserName}-${StageName}-alb-tg-blue"
+      Protocol: "HTTP"
+      Port: 80
+      TargetType: ip
+      HealthCheckProtocol: "HTTP"
+      HealthCheckPath: "/"
+      HealthCheckPort: "traffic-port"
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckIntervalSeconds: 10
+      Matcher: 
+        HttpCode: "200"
+      TargetGroupAttributes: 
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: "300"
+        - Key: "stickiness.enabled"
+          Value: "false"
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: "86400"
+      Tags:
+        - 
+          Key: "Name"
+          Value: !Sub "${UserName}-${StageName}-alb-tg-blue"
+        - Key: "UserName"
+          Value: !Ref UserName
+        - Key: "StageName"
+          Value: !Ref StageName
+
+  ALBTargetGroupGreen: 
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties: 
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub: "${UserName}-${StageName}-vpc"
+      Name: !Sub "${UserName}-${StageName}-alb-tg-green"
+      Protocol: "HTTP"
+      Port: 80
+      TargetType: ip
+      HealthCheckProtocol: "HTTP"
+      HealthCheckPath: "/"
+      HealthCheckPort: "traffic-port"
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckIntervalSeconds: 10
+      Matcher: 
+        HttpCode: "200"
+      TargetGroupAttributes: 
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: "300"
+        - Key: "stickiness.enabled"
+          Value: "false"
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: "86400"
+      Tags:
+        - 
+          Key: "Name"
+          Value: !Sub "${UserName}-${StageName}-alb-tg-green"
+        - Key: "UserName"
+          Value: !Ref UserName
+        - Key: "StageName"
+          Value: !Ref StageName
+
+  #----------------------------------------
+  # ALB
+  # ロードバランサーの設定です
+  #----------------------------------------    
+  ALB: 
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties: 
+      Name: !Sub "${UserName}-${StageName}-alb"
+      Scheme: "internet-facing"
+      LoadBalancerAttributes: 
+        - Key: "deletion_protection.enabled"
+          Value: "false"
+        - Key: "idle_timeout.timeout_seconds"
+          Value: "60"
+      SecurityGroups:
+        - Fn::ImportValue:
+            Fn::Sub: "${UserName}-${StageName}-sg-alb"
+      Subnets:
+        - Fn::ImportValue:
+            Fn::Sub: "${UserName}-${StageName}-subnet-public-1"
+        - Fn::ImportValue:
+            Fn::Sub: "${UserName}-${StageName}-subnet-public-2"
+      Tags: 
+        - Key: "Name"
+          Value: 
+            !Sub "${UserName}-${StageName}-alb"
+        - Key: "UserName"
+          Value: 
+            !Ref "UserName"
+        - Key: "StageName"
+          Value: 
+            !Ref "StageName"
+
+  #----------------------------------------
+  # ALB Listener
+  # ロードバランサーのリスナー設定です
+  # ここでロードバランサーとターゲットグループを関連付けます
+  #----------------------------------------
+  ALBListener: 
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties: 
+      DefaultActions: 
+        - TargetGroupArn: !Ref ALBTargetGroupBlue
+          Type: "forward"
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: "HTTP"
+
+Outputs:
+  ECRRepositoryName:
+    Description: "Name of ECR Repository"
+    Value: !Ref ECRRepository
+    Export:
+      Name: !Sub "${UserName}-${StageName}-ecr-repo-name"
+  ECRRepositoryArn:
+    Description: "ARN of ECR Repository"
+    Value: !GetAtt ECRRepository.Arn
+    Export:
+      Name: !Sub "${UserName}-${StageName}-ecr-repo-arn"
+  ALBListenerArn:
+    Description: "ARN of ALB Listener"
+    Value: !Ref ALBListener
+    Export:
+      Name: !Sub "${UserName}-${StageName}-alb-listener-arn"
+  
+  ALBTargetGroupBlue:
+    Description: "ARN of ALB Target Group (Blue)"
+    Value: !GetAtt ALBTargetGroupBlue.TargetGroupName
+    Export:
+      Name: !Sub "${UserName}-${StageName}-alb-tg-blue"
+
+  ALBTargetGroupGreen:
+    Description: "ARN of ALB Target Group (Green)"
+    Value: !GetAtt ALBTargetGroupGreen.TargetGroupName
+    Export:
+      Name: !Sub "${UserName}-${StageName}-alb-tg-green"

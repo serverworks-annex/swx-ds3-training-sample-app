@@ -1,0 +1,533 @@
+Description: 
+  "Serverworks devops training"
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - Label: 
+          default: "Common parameters"
+        Parameters: 
+          - "UserName"
+          - "StageName"
+      - Label:
+          default: "Parameters for CodePipeline"
+        Parameters:
+          - "GitHubConnectionArn"
+          - "FullRepositoryId"
+          - "BranchName"
+
+Parameters: 
+  UserName:
+    Description: User name
+    Type: String
+    Default: xxxx
+
+  StageName:
+    Description: Stage name
+    Type: String
+    AllowedValues:
+      - local
+      - training
+      - dev
+      - stg
+      - prod
+    Default: training
+
+  GitHubConnectionArn:
+    Description: "GitHub Connection ARN"
+    Type: "String"
+    Default: "arn:aws:codestar-connections:ap-northeast-1:123456789012:connection/12345678-1234-1234-1234-123456789012"
+  FullRepositoryId:
+    Description: "Full Repository ID"
+    Type: "String"
+    Default: "serverworks-annex/swx-ds3-training-sample-app"
+  BranchName:
+    Description: "Branch Name"
+    Type: "String"
+    Default: "main"
+
+Resources: 
+
+  #----------------------------------------
+  # S3 Bucket for CodePipeline
+  # CI/CDパイプラインが一時ファイルを格納するバケット
+  # ビルドした実行可能ファイルなどを格納します
+  #---------------------------------------- 
+  PipelineArtifactBucket: 
+    Type: "AWS::S3::Bucket"
+    Properties: 
+      BucketName: 
+        !Sub "${UserName}-${StageName}-${AWS::AccountId}-artifact-bucket"
+      VersioningConfiguration: 
+        Status: "Suspended"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration: 
+          - 
+            ServerSideEncryptionByDefault: 
+              SSEAlgorithm: "AES256"
+      Tags: 
+        - 
+          Key: "Name"
+          Value: 
+            !Sub "${UserName}-${StageName}-${AWS::AccountId}-artifact-bucket"
+        - 
+          Key: "UserName"
+          Value: 
+            !Ref "UserName"
+        - 
+          Key: "StageName"
+          Value: 
+            !Ref "StageName"
+
+  #----------------------------------------
+  # CodeBuild
+  # CodeBuildのビルドプロジェクト
+  #---------------------------------------- 
+  CodeBuildProject: 
+    Type: "AWS::CodeBuild::Project"
+    Properties: 
+      Name: 
+        !Sub "${UserName}-${StageName}-codebuild"
+      Source: 
+        Type: "CODEPIPELINE"
+      Artifacts: 
+        Type: "CODEPIPELINE"
+      Cache: 
+        Modes: 
+          - "LOCAL_DOCKER_LAYER_CACHE"
+        Type: "LOCAL"
+      Environment: 
+        ComputeType: "BUILD_GENERAL1_SMALL"
+        Image: "aws/codebuild/standard:7.0"
+        Type: "LINUX_CONTAINER"
+        PrivilegedMode: true # コンテナをビルドするために必要
+        EnvironmentVariables: 
+          - Name: "SERVICE_NAME"
+            Value: 
+              !Ref "UserName"
+          - Name: "STAGE_NAME"
+            Value: 
+              !Ref "StageName"
+          - Name: "REPOSITORY_NAME"
+            Value:
+              Fn::ImportValue:
+                Fn::Sub: "${UserName}-${StageName}-ecr-repo-name"
+      ServiceRole: 
+        !GetAtt "CodeBuildRole.Arn"
+      Tags: 
+        - 
+          Key: "Name"
+          Value: 
+            !Sub "${UserName}-${StageName}-codebuild"
+        - 
+          Key: "UserName"
+          Value: 
+            !Ref "UserName"
+        - 
+          Key: "StageName"
+          Value: 
+            !Ref "StageName"
+
+  #----------------------------------------
+  # CodeDeploy
+  # CodeDeployのアプリケーション
+  #---------------------------------------- 
+  CodeDeployApplication: 
+    Type: "AWS::CodeDeploy::Application"
+    Properties: 
+      ApplicationName: 
+        !Sub "${UserName}-${StageName}-codedeploy-app"
+      ComputePlatform: "ECS"
+      Tags: 
+        - 
+          Key: "Name"
+          Value: 
+            !Sub "${UserName}-${StageName}-codedeploy-app"
+        - 
+          Key: "UserName"
+          Value: 
+            !Ref "UserName"
+        - 
+          Key: "StageName"
+          Value: 
+            !Ref "StageName"
+
+  #----------------------------------------
+  # CodeDeploy
+  # CodeDeployのデプロイグループ
+  #---------------------------------------- 
+  CodeDeployGroup: 
+    Type: "AWS::CodeDeploy::DeploymentGroup"
+    Properties: 
+      ApplicationName: 
+        !Ref CodeDeployApplication
+      DeploymentGroupName: 
+        !Sub "${UserName}-${StageName}-codedeploy-group"
+      AutoRollbackConfiguration:
+        Enabled: True
+        Events:
+          - "DEPLOYMENT_FAILURE"
+      BlueGreenDeploymentConfiguration:
+        DeploymentReadyOption:
+          ActionOnTimeout: CONTINUE_DEPLOYMENT
+          WaitTimeInMinutes: 0
+        TerminateBlueInstancesOnDeploymentSuccess:
+          Action: TERMINATE
+          TerminationWaitTimeInMinutes: 5
+      DeploymentConfigName: "CodeDeployDefault.ECSAllAtOnce"
+      DeploymentStyle:
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+        DeploymentType: BLUE_GREEN
+      ECSServices:
+        - ClusterName: !Sub "${UserName}-${StageName}-ecs-cluster"
+          ServiceName: !Sub "${UserName}-${StageName}-ecs-service"
+      LoadBalancerInfo:
+        TargetGroupPairInfoList:
+          - TargetGroups:
+              - Name: !Sub "${UserName}-${StageName}-alb-tg-blue"
+              - Name: !Sub "${UserName}-${StageName}-alb-tg-green"
+            ProdTrafficRoute:
+              ListenerArns:
+                - Fn::ImportValue:
+                    Fn::Sub: "${UserName}-${StageName}-alb-listener-arn"
+      ServiceRoleArn: !GetAtt "CodeDeployRole.Arn"
+      Tags: 
+        - 
+          Key: "Name"
+          Value: 
+            !Sub "${UserName}-${StageName}-deployment-group"
+        - 
+          Key: "UserName"
+          Value: 
+            !Ref "UserName"
+        - 
+          Key: "StageName"
+          Value: 
+            !Ref "StageName"
+
+  #----------------------------------------
+  # CodePipeline
+  # パイプラインの各ステージの定義と実行順序です
+  #---------------------------------------- 
+  CodePipeline: 
+    Type: "AWS::CodePipeline::Pipeline"
+    Properties: 
+      Name: 
+        !Sub "${UserName}-${StageName}-codepipeline"
+      PipelineType: "V2"
+      RoleArn: 
+        !GetAtt "CodePipelineRole.Arn"
+      ArtifactStore: 
+        Type: "S3"
+        Location: 
+          !Ref "PipelineArtifactBucket"
+      Stages: 
+        #---------------------------------------
+        # https://docs.aws.amazon.com/ja_jp/codepipeline/latest/userguide/pipelines-trigger-source-repo-changes-cfn.html
+        # https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/aws-resource-codepipeline-pipeline.html
+        #--------------------------------------
+        - Name: Source
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: "1"
+              Configuration:
+                ConnectionArn: !Ref GitHubConnectionArn
+                FullRepositoryId: !Ref FullRepositoryId
+                BranchName: !Ref BranchName
+              OutputArtifacts:
+                - Name: "SourceOutput"
+              RunOrder: 1
+        - 
+          Name: "Build"
+          Actions: 
+            - 
+              Name: "BuildAction"
+              ActionTypeId: 
+                Category: "Build"
+                Owner: "AWS"
+                Provider: "CodeBuild"
+                Version: "1"
+              InputArtifacts: 
+                - 
+                  Name: "SourceOutput"
+              OutputArtifacts: 
+                - 
+                  Name: "BuildOutput"
+              Configuration: 
+                ProjectName: 
+                  !Ref "CodeBuildProject"
+              RunOrder: 1
+        - 
+          Name: "Deploy"
+          Actions: 
+            - 
+              Name: "DeployAction"
+              InputArtifacts: 
+                - 
+                  Name: "BuildOutput" 
+              ActionTypeId: 
+                Category: "Deploy"
+                Owner: "AWS"
+                Version: "1"
+                Provider: "CodeDeployToECS"
+              Configuration:
+                AppSpecTemplateArtifact: BuildOutput
+                TaskDefinitionTemplateArtifact: BuildOutput
+                AppSpecTemplatePath: appspec.yml
+                TaskDefinitionTemplatePath: taskdef.json
+                ApplicationName: !Ref CodeDeployApplication
+                DeploymentGroupName: !Ref CodeDeployGroup
+                Image1ArtifactName: BuildOutput
+                Image1ContainerName: IMAGE1_NAME
+              RunOrder: 1 
+      Tags: 
+        - 
+          Key: "Name"
+          Value: 
+            !Sub "${UserName}-${StageName}-codepipeline"
+        - 
+          Key: "UserName"
+          Value: 
+            !Ref "UserName"
+        - 
+          Key: "StageName"
+          Value: 
+            !Ref "StageName"
+
+  #----------------------------------------
+  # IAM Role for CodePipeline
+  # CodePipelineに付与するIAMロール
+  #----------------------------------------
+  CodePipelineRole: 
+    Type: "AWS::IAM::Role"
+    Properties: 
+      RoleName: 
+        !Sub "${UserName}-${StageName}-codepipeline-role"
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "codepipeline.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodePipeline_FullAccess
+        - arn:aws:iam::aws:policy/AWSCodeBuildDeveloperAccess
+      Policies:
+        - PolicyName: !Sub "${UserName}-${StageName}-codepipeline-codestar-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - "codestar-connections:UseConnection"
+                Resource: 
+                  - "*"
+        - PolicyName: !Sub "${UserName}-${StageName}-codepipeline-s3-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:PutObject"
+                  - "s3:GetBucketAcl"
+                  - "s3:GetBucketLocation"
+                Resource: 
+                  - !Sub "arn:aws:s3:::${UserName}-${StageName}-${AWS::AccountId}-artifact-bucket"
+                  - !Sub "arn:aws:s3:::${UserName}-${StageName}-${AWS::AccountId}-artifact-bucket/*"
+        - PolicyName: !Sub "${UserName}-${StageName}-codepipeline-deploy-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - "codedeploy:*"
+                Resource: "*"
+        - PolicyName: !Sub "${UserName}-${StageName}-codepipeline-ecs-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - "ecs:RegisterTaskDefinition"
+                Resource: "*"
+        - PolicyName: !Sub "${UserName}-${StageName}-codepipeline-iam-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - "iam:PassRole"
+                Resource: "*"
+      Tags: 
+        - 
+          Key: "Name"
+          Value: 
+            !Sub "${UserName}-${StageName}-codepipeline-role"
+        - 
+          Key: "UserName"
+          Value: 
+            !Ref "UserName"
+        - 
+          Key: "StageName"
+          Value: 
+            !Ref "StageName"
+
+  #----------------------------------------
+  # IAM Role for CodeBuild
+  # CodeBuildに付与するIAMロール
+  #----------------------------------------
+  CodeBuildRole: 
+    Type: "AWS::IAM::Role"
+    Properties: 
+      RoleName: 
+        !Sub "${UserName}-${StageName}-codebuild-role"
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: "codebuild.amazonaws.com"
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeBuildDeveloperAccess
+      Policies:
+        - PolicyName: !Sub "${UserName}-${StageName}-codebuild-logs-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource:
+                  - "arn:aws:logs:*:*:*"
+        - PolicyName: !Sub "${UserName}-${StageName}-codebuild-s3-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource:
+                  - "arn:aws:logs:*:*:*"
+              - Effect: "Allow"
+                Action: 
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:PutObject"
+                  - "s3:GetBucketAcl"
+                  - "s3:GetBucketLocation"
+                Resource: 
+                  - !Sub "arn:aws:s3:::${UserName}-${StageName}-${AWS::AccountId}-artifact-bucket"
+                  - !Sub "arn:aws:s3:::${UserName}-${StageName}-${AWS::AccountId}-artifact-bucket/*"
+        - PolicyName: !Sub "${UserName}-${StageName}-codebuild-ecr-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - "ecr:*"
+                Resource: "*"
+      Tags: 
+        - 
+          Key: "Name"
+          Value: 
+            !Sub "${UserName}-${StageName}-codebuild-role"
+        - 
+          Key: "UserName"
+          Value: 
+            !Ref "UserName"
+        - 
+          Key: "StageName"
+          Value: 
+            !Ref "StageName"
+
+  #----------------------------------------
+  # IAM Role for CodeDeploy
+  # CodeDeployに付与するIAMロール
+  #----------------------------------------
+  CodeDeployRole: 
+    Type: "AWS::IAM::Role"
+    Properties: 
+      RoleName: 
+        !Sub "${UserName}-${StageName}-codedeploy-role"
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "codedeploy.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeDeployFullAccess
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonECS_FullAccess
+      Policies:
+        - PolicyName: !Sub "${UserName}-${StageName}-codedeploy-logs-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource:
+                  - "arn:aws:logs:*:*:*"
+        - PolicyName: !Sub "${UserName}-${StageName}-codedeploy-s3-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:PutObject"
+                  - "s3:GetBucketAcl"
+                  - "s3:GetBucketLocation"
+                Resource: 
+                  - !Sub "arn:aws:s3:::${UserName}-${StageName}-${AWS::AccountId}-artifact-bucket"
+                  - !Sub "arn:aws:s3:::${UserName}-${StageName}-${AWS::AccountId}-artifact-bucket/*"
+        - PolicyName: !Sub "${UserName}-${StageName}-codedeploy-alb-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "elasticloadbalancing:*"
+                Resource: "*"
+      Tags: 
+        - 
+          Key: "Name"
+          Value: 
+            !Sub "${UserName}-${StageName}-codedeploy-role"
+        - 
+          Key: "UserName"
+          Value: 
+            !Ref "UserName"
+        - 
+          Key: "StageName"
+          Value: 
+            !Ref "StageName"

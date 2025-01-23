@@ -1,0 +1,329 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: Serverworks devops training
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Common parameters
+        Parameters:
+          - UserName
+          - StageName
+      - Label:
+          default: Parameters for VPC
+        Parameters:
+            - VpcCIDR
+            - PublicSubnet1CIDR
+            - PublicSubnet2CIDR
+            - PrivateSubnet1CIDR
+            - PrivateSubnet2CIDR
+
+Parameters:
+  UserName:
+    Description: User name
+    Type: String
+    Default: xxxx
+
+  StageName:
+    Description: Stage name
+    Type: String
+    AllowedValues:
+      - local
+      - training
+      - dev
+      - stg
+      - prod
+    Default: training
+
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 10.192.0.0/16
+
+  PublicSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+    Type: String
+    Default: 10.192.10.0/24
+
+  PublicSubnet2CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+    Type: String
+    Default: 10.192.11.0/24
+
+  PrivateSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Type: String
+    Default: 10.192.20.0/24
+
+  PrivateSubnet2CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the second Availability Zone
+    Type: String
+    Default: 10.192.21.0/24
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${UserName}-${StageName}-vpc
+        - Key: UserName
+          Value: !Ref UserName
+        - Key: StageName
+          Value: !Ref StageName
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${UserName}-${StageName}-igw
+        - Key: UserName
+          Value: !Ref UserName
+        - Key: StageName
+          Value: !Ref StageName
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+      CidrBlock: !Ref PublicSubnet1CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${UserName}-${StageName}-subnet-public-1
+        - Key: UserName
+          Value: !Ref UserName
+        - Key: StageName
+          Value: !Ref StageName
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs
+      CidrBlock: !Ref PublicSubnet2CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${UserName}-${StageName}-subnet-public-2
+        - Key: UserName
+          Value: !Ref UserName
+        - Key: StageName
+          Value: !Ref StageName
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${UserName}-${StageName}-public-routes
+        - Key: UserName
+          Value: !Ref UserName
+        - Key: StageName
+          Value: !Ref StageName
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub ${UserName}-${StageName}-subnet-private-1
+        - Key: UserName
+          Value: !Ref UserName
+        - Key: StageName
+          Value: !Ref StageName
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub ${UserName}-${StageName}-subnet-private-2
+        - Key: UserName
+          Value: !Ref UserName
+        - Key: StageName
+          Value: !Ref StageName
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${UserName}-${StageName}-private-routes
+        - Key: UserName
+          Value: !Ref UserName
+        - Key: StageName
+          Value: !Ref StageName
+
+  DefaultPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
+
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub ${UserName}-${StageName}-ngw
+        - Key: UserName
+          Value: !Ref UserName
+        - Key: StageName
+          Value: !Ref StageName
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${UserName}-${StageName}-sg-alb
+      GroupDescription: Security group for ALB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0      
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0      
+      Tags:
+        - Key: Name
+          Value: !Sub ${UserName}-${StageName}-sg-alb
+        - Key: UserName
+          Value: !Ref UserName
+        - Key: StageName
+          Value: !Ref StageName
+
+  ECSTaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${UserName}-${StageName}-sg-ecs
+      GroupDescription: Security group for ECS
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !GetAtt ALBSecurityGroup.GroupId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0      
+      Tags:
+        - Key: Name
+          Value: !Sub ${UserName}-${StageName}-sg-ecs
+        - Key: UserName
+          Value: !Ref UserName
+        - Key: StageName
+          Value: !Ref StageName
+          
+Outputs:
+  VPC:
+    Description: A reference to the created VPC
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${UserName}-${StageName}-vpc
+
+  PublicSubnet1:
+    Description: A reference to the public subnet in the 1st Availability Zone
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub ${UserName}-${StageName}-subnet-public-1
+
+  PublicSubnet2:
+    Description: A reference to the public subnet in the 2nd Availability Zone
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub ${UserName}-${StageName}-subnet-public-2
+
+  PrivateSubnet1:
+    Description: A reference to the private subnet in the 1st Availability Zone
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub ${UserName}-${StageName}-subnet-private-1
+
+  PrivateSubnet2:
+    Description: A reference to the private subnet in the 2nd Availability Zone
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub ${UserName}-${StageName}-subnet-private-2
+  
+  ALBSecurityGroup:
+    Description: Security group for ALB
+    Value: !Ref ALBSecurityGroup
+    Export:
+      Name: !Sub ${UserName}-${StageName}-sg-alb
+  
+  ECSTaskSecurityGroup:
+    Description: Security group for ECS
+    Value: !Ref ECSTaskSecurityGroup
+    Export:
+      Name: !Sub ${UserName}-${StageName}-sg-ecs
