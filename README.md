@@ -58,3 +58,14 @@ docker container run --rm -p 8080:80 -d php-sample:latest
 ```shell
 curl http://localhost:8080
 ```
+
+## AWS CodePipelineによるCI/CDパイプラインの構築手順
+
+CloudFormationテンプレートを以下の順で実行しておいてください。
+
+- iac/1_vpc.yml
+- iac/2_ecr_ecs_alb.yml
+- iac/3_codepipeline.yml
+
+`iac/3_codepipeline.yml`の実行には、GitHubとの接続設定のARNが必要です。  
+AWS CodePiplineのコンソール画面にある、`接続`からGitHub接続を作成し、そのARNを入力してください。
