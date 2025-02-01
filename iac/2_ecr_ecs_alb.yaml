@@ -9,13 +9,6 @@ Metadata:
         Parameters:
           - UserName
           - StageName
-      - Label: 
-          default: "Parameters for VPC"
-        Parameters:
-          - "VpcID"
-          - "PublicSubnets"
-          - "ALBSecurityGroup"
-          - "ECSSecurityGroup"
         
 Parameters:
   UserName:
